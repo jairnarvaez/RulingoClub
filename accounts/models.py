@@ -217,23 +217,98 @@ class Student(models.Model):
 
 
 # ==============================================================================
-# FIN DE IMPLEMENTACIÓN - ISSUE #1
-# ==============================================================================
-# ✅ CHECKLIST COMPLETADO:
-# [✓] Modelo Tutor implementado con OneToOneField a User
-# [✓] Modelo Student implementado con OneToOneField a User
-# [✓] Campo created_by en Student con ForeignKey a Tutor
-# [✓] Validación de rol único en ambos modelos
-# [✓] Métodos __str__() implementados
-# [✓] class Meta con verbose_name en español
-# [✓] Documentación inline completa
-# 
-# PRÓXIMOS PASOS:
-# 1. Ejecutar: python manage.py makemigrations
-# 2. Ejecutar: python manage.py migrate
-# 3. Validar en shell con los tests del Issue #1
+# ISSUE #4: IMPLEMENTAR MODELO COURSE
 # ==============================================================================
 
+# CHOICES para el campo course_type
+COURSE_TYPE_CHOICES = [
+    ('demo', 'Demo'),
+    ('level', 'Por Nivel'),
+    ('custom', 'Personalizado'),
+]
 
+class Course(models.Model):
+    """
+    Modelo para representar cursos de ruso en la plataforma.
+    
+    Un curso tiene un tipo (demo, nivel, personalizado) y está 
+    vinculado a un Tutor específico.
+    """
+
+    # ✅ Campo tutor (ForeignKey a Tutor, on_delete=CASCADE, related_name='courses')
+    tutor = models.ForeignKey(
+        Tutor,
+        on_delete=models.CASCADE,
+        related_name='courses',
+        verbose_name="Tutor",
+        help_text="Tutor dueño y creador de este curso."
+    )
+    
+    # ✅ Campo title (CharField, max_length=200, required)
+    title = models.CharField(
+        blank=False,
+        max_length=200,
+        verbose_name="Título del Curso"
+    )
+    
+    # ✅ Campo description (TextField, required)
+    description = models.TextField(
+        blank=False,
+        verbose_name="Descripción Detallada"
+    )
+    
+    # ✅ Campo course_type (CharField con CHOICES, default='level')
+    course_type = models.CharField(
+        max_length=20,
+        choices=COURSE_TYPE_CHOICES,
+        default='level',
+        verbose_name="Tipo de Curso",
+        help_text="Demo, Por Nivel o Personalizado."
+    )
+    
+    # ✅ Campo created_at (DateTimeField, auto_now_add=True)
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        verbose_name="Fecha de Creación"
+    )
+    
+    # ✅ Campo updated_at (DateTimeField, auto_now=True)
+    updated_at = models.DateTimeField(
+        auto_now=True,
+        verbose_name="Última Modificación"
+    )
+
+    # ✅ Meta options
+    class Meta:
+        verbose_name = "Curso"
+        verbose_name_plural = "Cursos"
+        ordering = ['-created_at']
+
+    # ✅ Método __str__()
+    def __str__(self):
+        """
+        Retorna: "{title} ({course_type}) - {tutor}"
+        """
+        return f"{self.title} ({self.course_type}) - {self.tutor}"
+    
+    # ✅ Método is_demo()
+    def is_demo(self):
+        """Retorna True si el curso es de tipo Demo."""
+        return self.course_type == 'demo'
+    
+    # ✅ Método is_level()
+    def is_level(self):
+        """Retorna True si el curso es de tipo Por Nivel."""
+        return self.course_type == 'level'
+        
+    # ✅ Método is_custom()
+    def is_custom(self):
+        """Retorna True si el curso es de tipo Personalizado."""
+        return self.course_type == 'custom'
+
+
+# ==============================================================================
+# FIN DE IMPLEMENTACIÓN - ISSUE #1 Y #4
+# ==============================================================================
 
 
