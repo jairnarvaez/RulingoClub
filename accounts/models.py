@@ -91,7 +91,8 @@ class Tutor(models.Model):
         - Si es así, lanza ValidationError con mensaje claro
         """
         # Llamar al clean() del padre primero
-        super().clean()
+        if self.pk:
+            super().clean()
         
         # ✅ Validación de rol único
         # Verificar si este User ya es Student
@@ -195,11 +196,12 @@ class Student(models.Model):
         
         # ✅ Validación de rol único
         # Verificar si este User ya es Tutor
-        if hasattr(self.user, 'tutor'):
-            raise ValidationError(
-                "Este usuario ya es Tutor. Un usuario no puede tener ambos roles."
-            )
-    
+        if hasattr(self, 'user') and self.user: 
+            if hasattr(self.user, 'tutor'):
+                raise ValidationError(
+                    "Este usuario ya es Tutor. Un usuario no puede tener ambos roles."
+                )
+        
     def save(self, *args, **kwargs):
         """
         Override de save para asegurar validación.
@@ -208,7 +210,8 @@ class Student(models.Model):
         Lo llamamos manualmente para garantizar validación.
         """
         # Ejecutar validaciones antes de guardar
-        self.full_clean()
+        if self.pk:
+            self.full_clean()
         # Guardar normalmente
         super().save(*args, **kwargs)
 
