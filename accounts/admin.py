@@ -10,7 +10,8 @@ from django.db import transaction
 from .models import Tutor, Student
 from .forms import StudentCreationForm, StudentChangeForm
 from django.core.exceptions import ValidationError
-
+from .models import Tutor, Student, Course, COURSE_TYPE_CHOICES
+from django.forms.widgets import RadioSelect
 
 # ==============================================================================
 # ADMIN: TUTOR
@@ -289,4 +290,149 @@ class StudentAdmin(admin.ModelAdmin):
 
 # ==============================================================================
 # FIN DE IMPLEMENTACIÓN - ISSUE #2
+# ==============================================================================
+
+
+
+# ==============================================================================
+# ISSUE #5: CONFIGURACIÓN ADMIN PARA CURSOS (CourseAdmin)
+# ==============================================================================
+
+
+@admin.register(Course)
+class CourseAdmin(admin.ModelAdmin):
+    """
+    Configuración del admin para el modelo Course.
+    Implementa permisos basados en rol, campos de solo lectura dinámicos
+    y auto-asignación del tutor creador.
+    """
+    
+    # ----------------------------------------------------------------------
+    # 1. CONFIGURACIÓN BÁSICA
+    # ----------------------------------------------------------------------
+
+    # ✅ list_display: Tutor, título, descripción truncada, tipo, fechas
+    list_display = [
+        'tutor',
+        'title',
+        'get_description_truncated',
+        'get_course_type_display',
+        'created_at',
+        'updated_at'
+    ]
+    
+    # ✅ search_fields: title, description
+    search_fields = ['title', 'description']
+    
+    # ✅ list_filter: course_type, created_at, tutor
+    list_filter = ['course_type', 'created_at', 'tutor']
+    
+    # ✅ ordering: ['-created_at'] (más recientes primero)
+    ordering = ['-created_at']
+
+    # Método helper para truncar descripción en list_display
+    def get_description_truncated(self, obj):
+        return obj.description[:50] + '...' if len(obj.description) > 50 else obj.description
+    get_description_truncated.short_description = "Descripción"
+    
+    # ----------------------------------------------------------------------
+    # 2. PERMISOS Y ACCESO (OVERRIDES)
+    # ----------------------------------------------------------------------
+
+    # 1. Override get_queryset()
+    def get_queryset(self, request):
+        """
+        ✅ Override get_queryset(): superusuario ve todos, tutor solo sus cursos.
+       
+        """
+        qs = super().get_queryset(request)
+        if request.user.is_superuser:
+            return qs  # Ver todos
+        
+        # Filtrar solo por cursos del tutor logueado
+        try:
+            return qs.filter(tutor__user=request.user)
+        except Tutor.DoesNotExist:
+            # Si el user no es Superuser ni Tutor, no ve nada
+            return qs.none()
+
+    # 2. Override save_model()
+    @transaction.atomic
+    def save_model(self, request, obj, form, change):
+        """
+        ✅ Override save_model(): auto-asignar tutor al crear (si no es superusuario).
+       
+        """
+        if not change:
+            # Si es creación
+            if not request.user.is_superuser:
+                # Tutor: Auto-asignar el tutor logueado
+                try:
+                    obj.tutor = request.user.tutor
+                except Tutor.DoesNotExist:
+                    raise ValidationError("Tu usuario debe tener un perfil de Tutor para crear cursos.")
+            # Si es Superusuario, el campo 'tutor' viene del formulario y se usa directamente.
+            
+            # Nota: Los campos de auditoría (created_at, updated_at) se llenan automáticamente.
+
+        super().save_model(request, obj, form, change) # Guardar
+
+    # 3. Override get_readonly_fields() (REVISADO)
+    def get_readonly_fields(self, request, obj=None):
+        """
+        ✅ Override get_readonly_fields(): Define campos de solo lectura dinámicamente.
+        
+        - Creados/Actualizados: Siempre readonly.
+        - course_type: Siempre readonly al editar (para ambos roles).
+        - tutor: Readonly solo para Tutores.
+        """
+        
+        readonly_list = ['created_at', 'updated_at'] # Siempre readonly
+        
+        if obj: # Editando un objeto existente
+            
+            # MODIFICACIÓN SOLICITADA: course_type es readonly para TODOS al editar
+            readonly_list.append('course_type')
+            readonly_list.append('tutor')
+        
+        return readonly_list
+        
+    # 4. Override formfield_for_choice_field()
+    def formfield_for_choice_field(self, db_field, request, **kwargs):
+        """
+        ✅ course_type con widget Radio Buttons (mejor UX para 3 opciones).
+       
+        """
+        if db_field.name == 'course_type':
+            kwargs['widget'] = RadioSelect()
+        return super().formfield_for_choice_field(db_field, request, **kwargs)
+
+    # 5. has_delete_permission()
+    # ✅ Eliminación permitida sin restricciones (no se requiere override, Django lo permite por defecto)
+    pass # Dejamos la implementación por defecto de Django, que es True para admins.
+
+    # ----------------------------------------------------------------------
+    # 3. CAMPOS DEL FORMULARIO (FIELDSETS/FIELDS)
+    # ----------------------------------------------------------------------
+
+    # Definir campos visibles según el rol (Controlado automáticamente por readonly y save_model)
+    # El uso de fieldsets asegura la visibilidad y orden.
+    
+    def get_fieldsets(self, request, obj=None):
+        """Define los campos visibles en los formularios de creación/edición."""
+        
+        if request.user.is_superuser:
+            # Superusuario: puede ver y editar todos los campos (tutor, title, description, course_type)
+            fields = ['tutor', 'title', 'description', 'course_type', 'created_at', 'updated_at']
+        else:
+            # Tutor: solo title, description, course_type al crear. tutor se auto-asigna.
+            # Al editar, solo title y description son editables (controlado por get_readonly_fields)
+            fields = ['title', 'description', 'course_type', 'created_at', 'updated_at']
+
+        return (
+            (None, {'fields': fields}),
+        )
+
+# ==============================================================================
+# FIN DE IMPLEMENTACIÓN - ISSUE #5
 # ==============================================================================
