@@ -7,11 +7,14 @@
 from django.contrib import admin
 from django.contrib.auth.models import User
 from django.db import transaction
-from .models import Tutor, Student
+from .models import Tutor, Student, Enrollment
 from .forms import StudentCreationForm, StudentChangeForm
 from django.core.exceptions import ValidationError
 from .models import Tutor, Student, Course, COURSE_TYPE_CHOICES
 from django.forms.widgets import RadioSelect
+from django.db.models import Q 
+from django.contrib import messages 
+from django.utils.html import format_html 
 
 # ==============================================================================
 # ADMIN: TUTOR
@@ -436,3 +439,127 @@ class CourseAdmin(admin.ModelAdmin):
 # ==============================================================================
 # FIN DE IMPLEMENTACIÓN - ISSUE #5
 # ==============================================================================
+
+
+
+# ==============================================================================
+# ADMIN: ENROLLMENT (Issue #6)
+# ==============================================================================
+
+@admin.register(Enrollment)
+class EnrollmentAdmin(admin.ModelAdmin):
+    """
+    Configuración del admin para el modelo Enrollment.
+    Implementa permisos para asegurar que los tutores solo matriculen
+    a sus estudiantes en sus propios cursos.
+    """
+
+    # 1. CONFIGURACIÓN BÁSICA
+    list_display = [
+        'student',
+        'course',
+        'get_course_tutor', # Helper
+        'status',
+        'enrolled_at',
+        'is_student_owned_by_tutor',
+    ]
+    list_filter = ['status', 'course', 'enrolled_at']
+    search_fields = ['student__user__username', 'course__title']
+    readonly_fields = ['enrolled_at', 'completed_at', 'updated_at']
+
+    fieldsets = (
+        ('Información de Matrícula', {
+            'fields': (('student', 'course'), 'status',), 
+        }),
+        ('Fechas de Registro', {
+            'fields': ('enrolled_at', 'completed_at', 'updated_at'),
+         
+        }),
+    )
+    
+    def get_course_tutor(self, obj):
+        return obj.course.tutor.user.get_full_name()
+    get_course_tutor.short_description = "Tutor del Curso"
+    
+    # 2. PERMISOS Y ACCESO (OVERRIDES)
+    
+    # Override 1: get_queryset()
+    def get_queryset(self, request):
+        """✅ Superusuario ve todas, Tutor solo las de SUS cursos."""
+        qs = super().get_queryset(request)
+        if request.user.is_superuser:
+            return qs  
+        
+        # Tutor: Filtrar solo matrículas de sus propios cursos
+        try:
+            return qs.filter(course__tutor__user=request.user)
+        except Tutor.DoesNotExist:
+            return qs.none() 
+
+    # Override 2: formfield_for_foreignkey()
+    def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        """✅ Filtra dropdowns: Tutor solo ve sus cursos y sus estudiantes."""
+        if request.user.is_superuser:
+            return super().formfield_for_foreignkey(db_field, request, **kwargs)
+
+        try:
+            tutor = request.user.tutor
+        except Tutor.DoesNotExist:
+            # Si no es tutor, no debe ver opciones
+            kwargs['queryset'] = db_field.related_model.objects.none()
+            return super().formfield_for_foreignkey(db_field, request, **kwargs)
+
+        if db_field.name == "course":
+            kwargs['queryset'] = Course.objects.filter(tutor=tutor)
+        
+        if db_field.name == "student":
+            kwargs['queryset'] = Student.objects.filter(created_by=tutor)
+            
+        return super().formfield_for_foreignkey(db_field, request, **kwargs)
+
+    # Override 3: get_readonly_fields()
+    def get_readonly_fields(self, request, obj=None):
+        """✅ Tutor NO puede editar status."""
+        readonly = super().get_readonly_fields(request, obj)
+        
+        if obj and not request.user.is_superuser:
+            readonly.append('status')
+            
+        return readonly
+
+    # Override 4: save_model() para validaciones de negocio
+    @transaction.atomic
+    def save_model(self, request, obj, form, change):
+        """✅ Valida que el tutor solo use sus cursos y sus estudiantes."""
+        if not request.user.is_superuser:
+            tutor = request.user.tutor
+            course = form.cleaned_data['course']
+            student = form.cleaned_data['student']
+            
+            # Validación 1: Curso pertenece al tutor
+            if course.tutor != tutor:
+                messages.error(request, 'Error de Validación: Solo puedes matricular estudiantes en TUS cursos.')
+                raise ValidationError("Intento de matricular en curso de otro tutor.")
+                
+            # Validación 2: Estudiante fue creado por el tutor
+            if student.created_by != tutor:
+                messages.error(request, 'Error de Validación: Solo puedes matricular estudiantes que TÚ creaste.')
+                raise ValidationError("Intento de matricular estudiante creado por otro tutor.")
+        
+        super().save_model(request, obj, form, change)
+
+    def is_student_owned_by_tutor(self, obj):
+            """
+            Muestra una marca si el estudiante aún pertenece al tutor del curso.
+            Esto es solo para fines de auditoría del Superusuario.
+            """
+            course_tutor = obj.course.tutor
+            student_creator = obj.student.created_by
+            
+            if course_tutor == student_creator:
+                return format_html('<span style="color: green;">✅ Propiedad OK</span>')
+            else:
+                return format_html('<span style="color: orange; font-weight: bold;">⚠️ Propiedad Transferida</span>')
+            
+    is_student_owned_by_tutor.short_description = "Coherencia Tutor/Estudiante"
+    is_student_owned_by_tutor.admin_order_field = 'student__created_by'

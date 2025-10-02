@@ -312,3 +312,74 @@ class Course(models.Model):
 # ==============================================================================
 
 
+# ==============================================================================
+# ISSUE #6: CHOICES PARA STATUS DE MATRÍCULA
+# ==============================================================================
+
+
+
+
+class Enrollment(models.Model):
+    """
+    Modelo para gestionar la matrícula de estudiantes en cursos.
+    """
+
+    STATUS_CHOICES = [
+        ('active', 'Activo'),
+        ('completed', 'Completado'),
+    ]
+
+    
+    # ✅ student (FK a Student, on_delete=CASCADE, related_name='enrollments')
+    student = models.ForeignKey(
+        Student,
+        on_delete=models.CASCADE,
+        related_name='enrollments',
+        verbose_name="Estudiante"
+    )
+    
+    # ✅ course (FK a Course, on_delete=CASCADE, related_name='enrollments')
+    course = models.ForeignKey(
+        Course,
+        on_delete=models.CASCADE,
+        related_name='enrollments',
+        verbose_name="Curso"
+    )
+    
+    # ✅ status (CharField con CHOICES, default='active')
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default='active',
+        verbose_name="Estado de Matrícula"
+    )
+    
+    # ✅ enrolled_at (DateTimeField, auto_now_add=True)
+    enrolled_at = models.DateTimeField(
+        auto_now_add=True,
+        verbose_name="Fecha de Matrícula"
+    )
+    
+    # ✅ completed_at (DateTimeField, null=True, blank=True)
+    completed_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name="Fecha de Finalización"
+    )
+    
+    # ✅ updated_at (DateTimeField, auto_now=True)
+    updated_at = models.DateTimeField(
+        auto_now=True,
+        verbose_name="Última Actualización"
+    )
+    
+    class Meta:
+        verbose_name = "Matrícula"
+        verbose_name_plural = "Matrículas"
+        # ✅ unique_together = ['student', 'course'] (no duplicados)
+        unique_together = ['student', 'course']
+        ordering = ['-enrolled_at']
+
+    # ✅ Método __str__() retorna: "{student} en {course}"
+    def __str__(self):
+        return f"{self.student} en {self.course}"
